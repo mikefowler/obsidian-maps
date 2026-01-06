@@ -22,6 +22,7 @@ import { rtlPluginCode } from './map/rtl-plugin-code';
 
 interface MapConfig {
 	coordinatesProp: BasesPropertyId | null;
+	zoomProp: BasesPropertyId | null;
 	markerIconProp: BasesPropertyId | null;
 	markerColorProp: BasesPropertyId | null;
 	mapHeight: number;
@@ -237,7 +238,6 @@ export class MapView extends BasesView {
 			if (isRestoringState || this.pendingMapState) return;
 
 			const hasConfiguredCenter = this.mapConfig.center[0] !== 0 || this.mapConfig.center[1] !== 0;
-			const hasConfiguredZoom = this.config.get('defaultZoom') && Number.isNumber(this.config.get('defaultZoom'));
 
 			// Set center based on configuration
 			if (hasConfiguredCenter) {
@@ -250,15 +250,27 @@ export class MapView extends BasesView {
 				}
 			}
 
-			// Set zoom based on configuration
-			if (hasConfiguredZoom) {
-				this.map.setZoom(this.mapConfig.defaultZoom); // Use configured zoom
-			}
-			else {
-				const bounds = this.markerManager.getBounds();
-				if (bounds) {
-					this.map.fitBounds(bounds, { padding: 20 }); // Fit all markers
+			const zoomStrategy = this.config.get('zoomStrategy');
+
+			// Set the zoom based on the selected strategy
+			switch (zoomStrategy) {
+				case 'bounds': {
+					const bounds = this.markerManager.getBounds();
+
+					if (bounds) {
+						this.map.fitBounds(bounds, { padding: 20 });
+					}
+
+					break;
 				}
+
+				case 'properties':
+					this.map.setZoom(this.markerManager.getWidestMarkerZoom() ?? DEFAULT_MAP_ZOOM);
+					break;
+
+				default:
+					this.map.setZoom(this.mapConfig.defaultZoom);
+					break;
 			}
 		});
 
@@ -440,6 +452,7 @@ export class MapView extends BasesView {
 	private loadConfig(currentTileSetId: string | null): MapConfig {
 		// Load property configurations
 		const coordinatesProp = this.config.getAsPropertyId('coordinates');
+		const zoomProp = this.config.getAsPropertyId('zoom');
 		const markerIconProp = this.config.getAsPropertyId('markerIcon');
 		const markerColorProp = this.config.getAsPropertyId('markerColor');
 
@@ -491,6 +504,7 @@ export class MapView extends BasesView {
 
 		return {
 			coordinatesProp,
+			zoomProp,
 			markerIconProp,
 			markerColorProp,
 			mapHeight,
@@ -698,6 +712,25 @@ export class MapView extends BasesView {
 						type: 'formula',
 						key: 'center',
 						placeholder: '[latitude, longitude]',
+					},
+					{
+						displayName: 'Zoom strategy',
+						type: 'dropdown',
+						key: 'zoomStrategy',
+						default: '',
+						options: {
+							'': 'Use default zoom',
+							'bounds': 'Use marker bounds',
+							'properties': 'Use widest zoom defined by markers',
+						},
+					},
+					{
+						displayName: 'Zoom property',
+						type: 'property',
+						key: 'zoom',
+						filter: prop => !prop.startsWith('file.'),
+						placeholder: 'Property',
+						shouldHide: (config) => config.get('zoomStrategy') !== 'properties',
 					},
 					{
 						displayName: 'Default zoom',
